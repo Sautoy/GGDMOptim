@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GGDMOptim Simulation 逐步精读 · 从 Diffusion 到 DPS</title>
+
+<!-- MathJax -->
+<script>
+window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']]
+  },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+
+<!-- highlight.js -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>window.addEventListener('DOMContentLoaded', () => hljs.highlightAll());</script>
+
+<style>
+  :root{
+    --bg:#fbfbfd; --fg:#1d1d1f; --muted:#6e6e73; --line:#e3e3e8;
+    --accent:#2563eb; --accent2:#7c3aed;
+    --intu:#eef5ff; --intu-b:#2563eb;
+    --paper:#f3eefe; --paper-b:#7c3aed;
+    --gotcha:#fff5e6; --gotcha-b:#d97706;
+    --meta:#eafaf1; --meta-b:#0d9d63;
+    --code-bg:#282c34;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    line-height:1.75; font-size:16.5px;
+  }
+  .layout{display:flex; max-width:1280px; margin:0 auto;}
+  /* sidebar */
+  nav{
+    width:268px; flex:0 0 268px; position:sticky; top:0; align-self:flex-start;
+    height:100vh; overflow-y:auto; padding:28px 18px 60px; border-right:1px solid var(--line);
+    font-size:14px;
+  }
+  nav h2{font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:18px 0 8px;}
+  nav a{display:block; color:var(--fg); text-decoration:none; padding:5px 10px; border-radius:7px; margin:1px 0;}
+  nav a:hover{background:#eef1f6;}
+  nav a.sub{padding-left:22px; color:var(--muted); font-size:13.5px;}
+  nav .brand{font-weight:700; font-size:16px; margin-bottom:4px;}
+  nav .tag{font-size:12px; color:var(--muted);}
+  /* content */
+  main{flex:1; min-width:0; padding:40px 52px 120px; max-width:880px;}
+  h1{font-size:30px; line-height:1.3; margin:0 0 6px;}
+  .subtitle{color:var(--muted); margin:0 0 28px; font-size:16px;}
+  h2{font-size:24px; margin:54px 0 14px; padding-top:14px; border-top:2px solid var(--line);}
+  h3{font-size:19px; margin:30px 0 10px;}
+  h4{font-size:16px; margin:22px 0 8px; color:#333;}
+  p{margin:12px 0;}
+  code:not(pre code){background:#eef1f6; padding:1.5px 6px; border-radius:5px; font-size:14px; font-family:"SF Mono",Consolas,Menlo,monospace; color:#b3204d;}
+  pre{border-radius:11px; margin:14px 0; font-size:13.5px; overflow:auto; box-shadow:0 2px 14px rgba(0,0,0,.08);}
+  pre code{font-family:"SF Mono",Consolas,Menlo,monospace; line-height:1.6; padding:16px 18px !important;}
+  .fil{display:inline-block; font-family:"SF Mono",Consolas,monospace; font-size:12.5px; color:#fff; background:#3a3f4b; border-radius:7px 7px 0 0; padding:5px 12px; margin-bottom:-6px; position:relative; z-index:1;}
+  .callout{border-radius:11px; padding:13px 18px 13px 16px; margin:16px 0; border-left:5px solid; font-size:15.5px;}
+  .callout .lab{font-weight:700; font-size:13px; letter-spacing:.03em; display:block; margin-bottom:3px;}
+  .intu{background:var(--intu); border-color:var(--intu-b);}
+  .intu .lab{color:var(--intu-b);}
+  .paper{background:var(--paper); border-color:var(--paper-b);}
+  .paper .lab{color:var(--paper-b);}
+  .gotcha{background:var(--gotcha); border-color:var(--gotcha-b);}
+  .gotcha .lab{color:var(--gotcha-b);}
+  .meta{background:var(--meta); border-color:var(--meta-b);}
+  .meta .lab{color:var(--meta-b);}
+  table{border-collapse:collapse; width:100%; margin:16px 0; font-size:14.5px;}
+  th,td{border:1px solid var(--line); padding:8px 11px; text-align:left; vertical-align:top;}
+  th{background:#f0f2f6;}
+  .pipe{display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; margin:20px 0; font-size:14px;}
+  .pipe .node{background:#fff; border:2px solid var(--accent); border-radius:10px; padding:8px 12px; text-align:center; min-width:78px;}
+  .pipe .node.noise{border-color:#d97706;}
+  .pipe .arr{color:var(--muted); font-size:20px;}
+  .pipe .lbl{display:block; font-size:11.5px; color:var(--muted);}
+  .toc-num{display:inline-block; width:1.7em; color:var(--accent); font-weight:700;}
+  .hl{background:#fff3b0; padding:0 3px; border-radius:3px;}
+  hr{border:none; border-top:1px solid var(--line); margin:40px 0;}
+  .footnote{font-size:14px; color:var(--muted);}
+  details{background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 16px; margin:14px 0;}
+  summary{cursor:pointer; font-weight:600; color:var(--accent);}
+  .eqn-label{color:var(--muted); font-size:13px;}
+  @media(max-width:980px){
+    nav{display:none}
+    main{padding:24px 18px 80px}
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav>
+  <div class="brand">GGDMOptim · Simulation</div>
+  <div class="tag">从 Diffusion 基础到 DPS 逐步精读</div>
+
+  <h2>路线</h2>
+  <a href="#overview">0 · 大图景与路线图</a>
+
+  <h2>四个核心步骤</h2>
+  <a href="#s1">1 · 数据生成（流形 &amp; reward）</a>
+  <a href="#s2">2 · 加噪 forward process</a>
+  <a href="#s3">3 · denoiser 训练</a>
+  <a href="#s4">4 · 采样（无条件 reverse）</a>
+
+  <h2>引导与优化</h2>
+  <a href="#s5">5 · 引导采样：G / G_loss / DPS</a>
+  <a href="#s6">6 · 优化循环 (Algorithm 1)</a>
+
+  <h2>你的目标</h2>
+  <a href="#s7">7 · 在 simulation 上跑通 DPS</a>
+  <a href="#s8">8 · 搬到 metamaterial</a>
+  <a href="#s9">9 · 怎么跑 &amp; 调试</a>
+  <a href="#cheat">附 · 符号对照表</a>
+</nav>
+
+<main>
+  <h1>GGDMOptim Simulation 逐步精读</h1>
+  <p class="subtitle">论文：<em>Gradient Guidance for Diffusion Models: An Optimization Perspective</em> (Guo, Yuan et al., NeurIPS 2024) · <a href="https://arxiv.org/abs/2404.14743">arXiv:2404.14743</a></p>
+
+  <div class="callout intu">
+    <span class="lab">怎么读这份文档</span>
+    每一节都按 <b>① 直觉 → ② 论文公式 → ③ 对应代码行</b> 的顺序讲。蓝色框是直觉，紫色框是论文对应，橙色框是容易踩的坑，绿色框是「这一点怎么搬到 metamaterial」。代码行号都对应 <code>simulations/</code> 里的真实文件。数学公式需要联网渲染（MathJax）。
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="overview"><span class="toc-num">0</span>大图景与路线图</h2>
+
+  <p>先把三个东西的关系理清楚，否则后面会晕：</p>
+
+  <table>
+    <tr><th>名字</th><th>是什么</th><th>在本仓库里</th></tr>
+    <tr><td><b>Diffusion model（扩散模型）</b></td><td>一个生成模型：学会从纯噪声一步步「去噪」出符合数据分布的样本。</td><td><code>GaussianDiffusion</code> 基类</td></tr>
+    <tr><td><b>Guidance（引导）</b></td><td>在去噪的每一步，往「我想要的方向」推一把，让生成结果满足某个条件 / 最大化某个奖励。</td><td><code>GuidedGaussianDiffusion</code> 的 <code>v1</code>/<code>v2</code></td></tr>
+    <tr><td><b>DPS</b><br>(Diffusion Posterior Sampling)</td><td>一种具体的 guidance 公式，用来解「逆问题」：已知观测 \(y=\mathcal{A}(x)\)，反推 \(x\)。它的关键是<b>对去噪网络反向传播</b>。</td><td>就是本仓库的 <code>v2</code>（G_loss），当 \(\mathcal{A}\) 是线性时</td></tr>
+  </table>
+
+  <div class="callout intu">
+    <span class="lab">一句话路线图</span>
+    本仓库的 <b>G_loss（cond_score_version = v2）= 线性观测算子下的 DPS</b>。你的三步走其实是：<br>
+    （1）吃透扩散模型四步（数据→加噪→训 denoiser→采样）；<br>
+    （2）看懂 v2 为什么等价于 DPS——这一步几乎不用改代码，<b>v2 已经是一个 DPS 了</b>；<br>
+    （3）把 v2 里那个「线性奖励 \(g^\top x\)」换成你的 metamaterial 性质预测网络 \(\mathcal{A}(x)\)，就成了你的逆向设计 DPS。
+  </div>
+
+  <p>所以本文档的重心：先用第 1–4 节把扩散模型本身讲透（你说对 diffusion 不熟，这是地基），第 5 节讲清楚 guidance 三兄弟（naive G / G_loss / DPS）的区别，第 7–8 节落到你的目标。</p>
+
+  <div class="pipe">
+    <div class="node">\(x_0\)<span class="lbl">真实数据</span></div>
+    <span class="arr">→</span>
+    <div class="node">\(x_1\)</div>
+    <span class="arr">→</span>
+    <div class="node">\(\cdots\)<span class="lbl">加噪 (forward)</span></div>
+    <span class="arr">→</span>
+    <div class="node noise">\(x_T\)<span class="lbl">≈ 纯高斯噪声</span></div>
+  </div>
+  <div class="pipe">
+    <div class="node noise">\(x_T\)<span class="lbl">采样起点</span></div>
+    <span class="arr">←</span>
+    <div class="node">\(\cdots\)<span class="lbl">去噪 (reverse)<br>denoiser 一步步预测</span></div>
+    <span class="arr">←</span>
+    <div class="node">\(x_1\)</div>
+    <span class="arr">←</span>
+    <div class="node">\(x_0\)<span class="lbl">生成样本</span></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="s1"><span class="toc-num">1</span>数据生成：我们要模拟的数据流形是什么？reward 是什么？</h2>
+
+  <p>这一节对应 <code>train.py</code> 和 <code>test_func.py</code>。在做扩散之前，论文先<b>人为构造一个「干净」的数据分布</b>和一个<b>奖励函数</b>，这样才能定量验证「引导有没有把样本推向高奖励、同时有没有偏离数据流形」。</p>
+
+  <h3>1.1 两种数据流形</h3>
+
+  <h4>(A) linear_latent —— 线性低维子空间（默认实验）</h4>
+  <div class="callout intu">
+    <span class="lab">直觉</span>
+    想象 64 维空间里，真实数据其实只活在一个 16 维的「平面」上（一个线性子空间）。这模拟了真实世界的「数据有低维结构」——比如所有合法的图片只占像素空间极小一块。
+  </div>
+
+  <span class="fil">train.py · LinearLatentData.generate_x (L136)</span>
+<pre><code class="language-python">def generate_x(self, N):
+    # A 是 (d_inner=16, d_outer=64) 的行正交矩阵（来自 ortho_group）
+    # x = 16维标准高斯 @ A  →  落在 A 的行空间里，是 R^64 中的一个 16 维子空间
+    x = np.random.randn(N, self.d_inner).dot(self.A)
+    return x</code></pre>
+
+  <p>子空间 \(\mathcal{A}\) 由 <code>ortho_group.rvs(64)[:16,:]</code> 取前 16 行得到（正交基）。<b>「在流形上」就是指 \(x\) 落在这个 16 维子空间里。</b></p>
+
+  <p>论文关心一个量——<b>off-support ratio（偏离比）</b>：把任意点 \(x\) 分解成「平行于子空间的分量 \(x_\parallel\)」和「垂直分量 \(x_\perp\)」，比值 \(r = \|x_\perp\| / \|x_\parallel\|\)。真实数据 \(r=0\)；引导如果把样本推出子空间，\(r\) 就变大。</p>
+
+  <span class="fil">train.py · off_support_ratio (L110)</span>
+<pre><code class="language-python">parallel = samples.dot(self.A.T).dot(self.A)   # 投影到子空间 = x A^T A
+vertical = samples - parallel                   # 垂直分量
+ratio = norm(vertical) / (norm(parallel)+1e-8)  # r = ||x_perp|| / ||x_para||</code></pre>
+
+  <h4>(B) unit_ball —— 非线性流形（单位球面）</h4>
+  <span class="fil">train.py · UnitBallData.generate_x (L184)</span>
+<pre><code class="language-python">x = np.random.multivariate_normal(mean=0, cov=I, size=N)   # 64 维高斯
+x = x / np.linalg.norm(x, axis=-1, keepdims=True)          # 归一化到单位球面 ||x||=1</code></pre>
+  <p>这里数据流形是 \(\{x : \|x\|=1\}\)，一个<b>弯曲（非线性）</b>的流形。off-support ratio 定义成 \(\|x\|-1\)（偏离球面多远）。论文用它来说明：即使流形是非线性的，G_loss 依然能贴着流形走。</p>
+
+  <h3>1.2 reward（奖励 / 目标函数）</h3>
+  <p>对应 <code>test_func.py</code>。这是我们想<b>最大化</b>的东西。三种：</p>
+
+  <table>
+    <tr><th>名字</th><th>公式</th><th>用在哪</th></tr>
+    <tr><td><code>Linear</code></td><td>\(f(x)=\theta^\top x\)</td><td>unit_ball 实验</td></tr>
+    <tr><td><code>QuadraticOnLinear</code> (\(f_1\))</td><td>\(f_1(x)=10-(\theta^\top x-3)^2\)</td><td>linear_latent 主实验</td></tr>
+    <tr><td><code>NegNormPlus</code> (\(f_2\))</td><td>\(f_2(x)=5-0.5\|x-b\|\)</td><td>linear_latent</td></tr>
+  </table>
+
+  <span class="fil">test_func.py · L17-39</span>
+<pre><code class="language-python">class Linear(BasicFunc):
+    def func(self, x):
+        return torch.matmul(x, self.theta)          # θ^T x
+
+class QuadraticOnLinear(Linear):
+    def func(self, x):
+        label = super().func(x)                     # θ^T x
+        return 10 - (label - 3) ** 2                 # f1
+
+class NegNormPlus(BasicFunc):
+    def func(self, x):
+        return 5. - 0.5 * torch.norm(x - self.b, dim=1)   # f2</code></pre>
+
+  <div class="callout paper">
+    <span class="lab">论文对应 · 为什么要分 θ₁ 和 θ₂</span>
+    在 <code>generate_hyperparameters (L65)</code> 里造了两个 \(\theta\)：<br>
+    • <b>θ₁ = Aᵀβ</b>：完全落在数据子空间里（on-support）。<br>
+    • <b>θ₂</b>：故意构造成 off/on 比 = 9（<code>r_off=9</code>），也就是奖励的「最优方向」<span class="hl">大部分指向数据流形之外</span>。<br>
+    这是论文实验的精髓：如果你<b>naively 沿 θ₂ 做梯度上升</b>，会冲出数据流形（生成无意义样本）；而好的 guidance 应该<b>在流形内</b>找到奖励尽可能高的点。这正是 G vs G_loss 的分水岭（Figure 4）。
+  </div>
+
+  <h3>1.3 批量求梯度</h3>
+  <p>优化时每一步要拿到当前样本处奖励的梯度 \(g=\nabla f(x)\)。每个样本各算各的（并行优化一整批）：</p>
+  <span class="fil">test_func.py · BatchGrad (L41)</span>
+<pre><code class="language-python">def BatchGrad(X, func):
+    gradient_bs = jacobian(func, X)                          # 整批雅可比
+    gradient_bs = torch.diagonal(gradient_bs, dim1=0, dim2=2).permute(2,0,1).squeeze(1)
+    return gradient_bs, func(X)   # 返回 (每个样本的梯度 g_i, 奖励值)</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="s2"><span class="toc-num">2</span>加噪（forward process）：处理之后我们得到了什么样的 data？</h2>
+
+  <div class="callout intu">
+    <span class="lab">直觉</span>
+    扩散模型的核心套路：<b>正向</b>把数据一点点泡进噪声里，直到变成纯高斯噪声（这一步没有学习，是固定的数学公式）；<b>反向</b>训练一个网络把噪声一点点擦掉。加噪过程存在的唯一目的，是<b>定义一条「数据 ⇄ 噪声」的可逆通路</b>，让神经网络有东西可学。
+  </div>
+
+  <h3>2.1 加噪的数学</h3>
+  <p>定义一串噪声强度 \(\beta_1,\dots,\beta_T\)（schedule），令 \(\alpha_t = 1-\beta_t\)，累积乘积 \(\bar\alpha_t = \prod_{s\le t}\alpha_s\)。则<b>从干净数据 \(x_0\) 一步直达任意 \(t\) 时刻</b>的噪声样本：</p>
+  $$ x_t = \sqrt{\bar\alpha_t}\, x_0 + \sqrt{1-\bar\alpha_t}\,\varepsilon, \qquad \varepsilon\sim\mathcal{N}(0,I) $$
+  <p class="eqn-label">等价地：\(q(x_t\mid x_0)=\mathcal{N}\!\big(x_t;\ \sqrt{\bar\alpha_t}x_0,\ (1-\bar\alpha_t)I\big)\)。</p>
+
+  <ul>
+    <li>\(t\) 小（接近 0）：\(\bar\alpha_t\approx 1\) → \(x_t\approx x_0\)，几乎没噪声。</li>
+    <li>\(t\) 大（接近 T）：\(\bar\alpha_t\approx 0\) → \(x_t\approx\varepsilon\)，几乎是纯噪声。</li>
+  </ul>
+
+  <h3>2.2 代码：schedule 与系数</h3>
+  <span class="fil">diffusion.py · GaussianDiffusion.__init__ (L48-71)</span>
+<pre><code class="language-python">betas = cosine_beta_schedule(timesteps)        # 默认 cosine schedule，T=200
+alphas = 1. - betas
+alphas_cumprod = torch.cumprod(alphas, dim=0)  # ᾱ_t
+
+# 后面到处要用的两个系数（都按 buffer 存好，靠 extract(·,t,·) 按时间步取）
+register_buffer('sqrt_alphas_cumprod',           sqrt(alphas_cumprod))        # √ᾱ_t   → 代码里叫 alpha_t
+register_buffer('sqrt_one_minus_alphas_cumprod', sqrt(1.-alphas_cumprod))     # √(1-ᾱ_t)</code></pre>
+
+  <div class="callout gotcha">
+    <span class="lab">命名坑①</span>
+    代码里的 <code>alpha_t = sqrt_alphas_cumprod = √ᾱ_t</code>，<code>h_t = sqrt_one_minus_alphas_cumprod**2 = (1-ᾱ_t)</code>。注意这跟有些教材里的 \(\alpha_t\)（单步）不是一回事——这里 <code>alpha_t</code> 实际是「累积」的 \(\sqrt{\bar\alpha_t}\)。后面公式全用这套记号。
+  </div>
+
+  <h3>2.3 加噪在代码里只有一行</h3>
+  <span class="fil">diffusion.py · p_losses (L109)</span>
+<pre><code class="language-python">def p_losses(self, x_start, t, classes=None):
+    noise = torch.randn_like(x_start)                                       # ε ~ N(0,I)
+    x = extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start \
+        + extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise   # x_t = √ᾱ_t·x_0 + √(1-ᾱ_t)·ε
+    return F.mse_loss(self.model(x, t, classes), noise)</code></pre>
+
+  <div class="callout intu">
+    <span class="lab">处理之后我们得到了什么？</span>
+    我们并没有得到「一份新数据集」，而是得到了一个<b>带噪样本的生成规则</b>：给定任意干净样本 \(x_0\) 和任意时间步 \(t\)，立刻能造出 \(x_t\)。训练时对每个样本<b>随机抽一个 \(t\)</b>（见下一节）。<br>
+    几何上的关键变化：原本数据挤在 16 维子空间上（测度为 0，score 在子空间外没定义）；加了高斯噪声后，\(x_t\) 的分布<b>胖了一圈、铺满整个 64 维空间</b>，于是 \(\nabla\log q(x_t)\)（score）处处有定义、可被网络学习。<b>这就是为什么必须先加噪</b>。
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="s3"><span class="toc-num">3</span>denoiser 训练：怎么让网络学会 predict noise？</h2>
+
+  <h3>3.1 训练目标</h3>
+  <div class="callout intu">
+    <span class="lab">直觉</span>
+    给网络看一个被噪声污染的 \(x_t\)（外加告诉它现在是第几步 \(t\)），让它<b>猜出当初加进去的那团噪声 \(\varepsilon\)</b>。猜得越准，说明它越懂「干净数据长什么样」。训练就是反复：抽一个真实样本 → 随机选 \(t\) → 加噪 → 让网络预测噪声 → MSE 回传。
+  </div>
+
+  <p>损失（DDPM 的标准简化损失）：</p>
+  $$ \mathcal{L}(\theta)=\mathbb{E}_{x_0,\,t,\,\varepsilon}\big\|\,\varepsilon_\theta(x_t,t)-\varepsilon\,\big\|^2,\qquad x_t=\sqrt{\bar\alpha_t}x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon $$
+
+  <span class="fil">diffusion.py · forward + p_losses (L116, L109)</span>
+<pre><code class="language-python">def forward(self, img, classes=None):
+    t = torch.randint(0, self.num_timesteps, (img.shape[0],)).long()  # 每个样本随机一个时间步 t
+    return self.p_losses(img, t, classes)
+# p_losses 里：return F.mse_loss(self.model(x_t, t), noise)   ← 预测噪声 vs 真噪声</code></pre>
+
+  <span class="fil">train.py · SingleStepIterator.train (L213) —— 标准训练 loop</span>
+<pre><code class="language-python">for e in range(num_episodes):
+    for (sample_batch,) in dataset:
+        loss = self.diffusion(sample_batch)   # = forward()，内部随机 t + 加噪 + MSE
+        optimizer.zero_grad(); loss.backward(); optimizer.step()</code></pre>
+
+  <div class="callout paper">
+    <span class="lab">论文对应 · 为什么「预测噪声」= 学 score</span>
+    网络学到的最优解是条件期望 \(\varepsilon_\theta(x_t,t)\to \mathbb{E}[\varepsilon\mid x_t]\)。而 <b>score（对数密度梯度）</b>与噪声只差一个缩放：
+    $$ s(x_t,t):=\nabla_{x_t}\log q(x_t)= -\frac{\varepsilon_\theta(x_t,t)}{\sqrt{1-\bar\alpha_t}} $$
+    代码里这个换算到处都是，比如 <code>uncond_score = -pred_noise / sqrt_one_minus_alphas_cumprod</code>。<b>记住这条换算，第 5 节的 guidance 全靠它。</b>
+  </div>
+
+  <h3>3.2 denoiser 网络长什么样（Unet1D）</h3>
+  <p>对应 <code>unet_1d.py</code>。它是一个把数据当成「长度=64 的一维信号」处理的 1D U-Net。你<b>不需要逐行读懂</b>，知道它的输入输出接口即可：</p>
+
+  <table>
+    <tr><th>输入</th><th>含义</th></tr>
+    <tr><td><code>x</code> (B, 64)</td><td>带噪样本 \(x_t\)（内部 reshape 成 (B,1,64) 走 1D 卷积）</td></tr>
+    <tr><td><code>time</code> (B,)</td><td>时间步 \(t\)，经 <code>SinusoidalPosEmb</code> 编码后注入每个 ResBlock（让网络知道「现在噪声多大」）</td></tr>
+    <tr><td><code>classes</code></td><td>条件嵌入接口（本仓库<b>没用</b>，见下方坑②）</td></tr>
+  </table>
+  <p>输出：(B, 64)，即预测的噪声 \(\varepsilon_\theta\)。结构是标准 U-Net：下采样 → 中间块（带 attention）→ 上采样，配 skip-connection。</p>
+
+  <div class="callout gotcha">
+    <span class="lab">命名坑② —— 极其重要</span>
+    <code>main.py:371</code> 建模型时是 <code>Unet1D(dim=64, <b>conditional=False</b>)</code>。也就是说<b>网络根本不吃 classes 这个输入</b>，它永远是个<b>无条件</b>去噪器。<br>
+    那 sampling 时传进去的 <code>classes</code> 是什么？——是<b>引导的目标值 \(y\)</b>（target reward），它<b>不进网络</b>，而是在第 5 节的 <code>cond_score_v1/v2</code> 里被当作引导项的一部分使用。<br>
+    <b>结论：本仓库的「条件生成」完全靠 training-free guidance（采样时改 score）实现，没有重新训练一个条件模型。</b>这正是 DPS 这类方法的卖点：一个无条件预训练模型 + 采样时引导，就能解各种逆问题。
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="s4"><span class="toc-num">4</span>采样（无条件 reverse process）</h2>
+
+  <div class="callout intu">
+    <span class="lab">直觉</span>
+    训练好 denoiser 后，<b>从纯噪声 \(x_T\sim\mathcal{N}(0,I)\) 出发，反复「预测噪声 → 擦掉一点 → 加一点小随机」</b>，走 T 步回到 \(x_0\)。这就是 DDPM 采样。每一步都用到一个中间产物：<b>从当前 \(x_t\) 预估的干净样本 \(\hat x_0\)</b>，它是后面所有 guidance 的主角。
+  </div>
+
+  <h3>4.1 Tweedie 公式：从 \(x_t\) 预估 \(\hat x_0\)</h3>
+  <p>把第 3 节加噪公式 \(x_t=\sqrt{\bar\alpha_t}x_0+\sqrt{1-\bar\alpha_t}\varepsilon\) 反解，并用网络预测的 \(\varepsilon_\theta\) 代替真噪声：</p>
+  $$ \hat x_0 = \mathbb{E}[x_0\mid x_t]=\frac{x_t-\sqrt{1-\bar\alpha_t}\,\varepsilon_\theta}{\sqrt{\bar\alpha_t}} = \frac{x_t + (1-\bar\alpha_t)\,s(x_t,t)}{\sqrt{\bar\alpha_t}} $$
+  <p class="eqn-label">（两种写法等价，用了 \(s=-\varepsilon_\theta/\sqrt{1-\bar\alpha_t}\)。）这就是 <b>Tweedie / Tweedie's formula</b>。</p>
+
+  <h3>4.2 DDPM 反向一步</h3>
+  <p>已知 \(\hat x_0\) 后，用后验 \(q(x_{t-1}\mid x_t,\hat x_0)\)（一个高斯）采样下一步：</p>
+  $$ x_{t-1}=\underbrace{\tilde\mu(x_t,\hat x_0)}_{\text{posterior mean}}+\sigma_t z,\quad z\sim\mathcal{N}(0,I) $$
+
+  <span class="fil">diffusion.py · p_mean_variance (L81) + p_sample (L92)</span>
+<pre><code class="language-python">def p_mean_variance(self, x, t, classes=None):
+    pred_noise = self.model(x, t, classes)
+    # ① Tweedie：x_start = √(1/ᾱ_t)·x_t - √(1/ᾱ_t -1)·ε   （就是 x̂_0）
+    x_start = sqrt_recip_alphas_cumprod[t]*x - sqrt_recipm1_alphas_cumprod[t]*pred_noise
+    # ② DDPM 后验均值 = coef1·x̂_0 + coef2·x_t
+    posterior_mean = posterior_mean_coef1[t]*x_start + posterior_mean_coef2[t]*x
+    return posterior_mean, posterior_log_variance_clipped[t]
+
+def p_sample(self, x, t, classes=None):
+    mean, log_var = self.p_mean_variance(x, t, classes)
+    noise = randn_like(x) if t>0 else 0.        # 最后一步 t=0 不再加噪
+    return mean + (0.5*log_var).exp()*noise</code></pre>
+
+  <span class="fil">diffusion.py · sample (L99) —— 整条反向链</span>
+<pre><code class="language-python">@torch.no_grad()
+def sample(self, classes=None, num_samples=None):
+    img = torch.randn((N, self.image_size))           # x_T ~ N(0, I)
+    for t in range(self.num_timesteps-1, -1, -1):     # T-1, T-2, ..., 0
+        img = self.p_sample(img, t, classes)
+    return img                                         # x_0：生成样本</code></pre>
+
+  <p>到这里，<b>一个完整的无条件扩散模型</b>就齐了：第 1 节造数据、第 2 节加噪、第 3 节训 denoiser、第 4 节采样。<code>main.py</code> 里不加 <code>--optimize</code> 时跑的就是这套，生成的样本会落在数据流形上（off-support ratio ≈ 0）。</p>
+
+  <!-- ============================================================ -->
+  <h2 id="s5"><span class="toc-num">5</span>引导采样：G / G_loss / 和 DPS 的关系</h2>
+
+  <p>现在加入奖励。目标：让采样出来的 \(x_0\) <b>奖励高</b>，同时<b>留在数据流形上</b>。做法是在第 4 节每一步的 score 上加一个引导项。</p>
+
+  <h3>5.1 条件分数分解（所有 guidance 的出发点）</h3>
+  <p>想从「高奖励的条件分布」\(p(x\mid y)\propto p(x)\,p(y\mid x)\) 采样，对 \(\log\) 求梯度：</p>
+  $$ \underbrace{\nabla_{x_t}\log p(x_t\mid y)}_{\text{条件 score}}=\underbrace{\nabla_{x_t}\log p(x_t)}_{\text{无条件 score（denoiser）}}+\underbrace{\nabla_{x_t}\log p(y\mid x_t)}_{\text{guidance 项}} $$
+  <p>难点在最后一项 \(p(y\mid x_t)\)：观测 \(y\) 是对<b>干净</b> \(x_0\) 的，但我们手头是带噪的 \(x_t\)。三种方法的差别全在<b>怎么近似这一项</b>。</p>
+
+  <h3>5.2 G（naive gradient，cond_score_version = v1）</h3>
+  <div class="callout intu">
+    <span class="lab">直觉</span>
+    最朴素：直接拿奖励梯度 \(g=\nabla f\) 当引导方向，往 \(g\) 推。它<b>把「score 对 \(x_t\) 的依赖」近似成常数 \(g\)</b>，没有考虑流形。
+  </div>
+  $$ G = s(x_t,t) + \beta_t\,(y - g^\top\hat x_0)\,g,\qquad \beta_t=\frac{\sqrt{\bar\alpha_t}}{\sigma^2 + (1-\bar\alpha_t)\|g\|^2} $$
+  <span class="fil">diffusion.py · cond_score_v1 (L193)</span>
+<pre><code class="language-python">beta_t = alpha_t / (self.sigma**2 + h_t * norm(self.g)**2)     # 论文 Prop.3 的 β_t
+x_0_hat = (x + h_t * uncond_score) / alpha_t                    # Tweedie
+G = uncond_score + beta_t * (classes - sum(x_0_hat*self.g)) * self.g   # classes 就是 y
+#                              ↑ (y - g^T x̂_0)              ↑ 方向固定为 g</code></pre>
+
+  <h3>5.3 G_loss（look-ahead loss，cond_score_version = v2）← <span class="hl">这就是 DPS</span></h3>
+  <div class="callout intu">
+    <span class="lab">直觉</span>
+    不直接用 \(g\)，而是定义一个「前瞻损失」\(\big(y-g^\top\hat x_0(x_t)\big)^2\)——衡量「如果现在收手去噪，得到的 \(\hat x_0\) 离目标多远」——然后对 \(x_t\) 求这个损失的梯度。<b>关键：\(\hat x_0\) 是网络的输出，对它求梯度会穿过整个 denoiser 反向传播</b>，于是引导方向被网络（也就是数据流形）「掰正」了。
+  </div>
+  $$ G_{\text{loss}} = s(x_t,t) - \beta_t\,\nabla_{x_t}\big(y-g^\top\hat x_0\big)^2,\qquad \beta_t=\frac{\bar\alpha_t/2}{\bar\alpha_t\sigma^2+(1-\bar\alpha_t)\big\|\nabla_{x_t}(g^\top\hat x_0)\big\|^2} $$
+
+  <span class="fil">diffusion.py · cond_score_v2 (L155)</span>
+<pre><code class="language-python">with torch.enable_grad():
+    x_in = x.detach().requires_grad_(True)
+    pred_noise = self.model(x_in, t, classes=None)
+    uncond_score = -pred_noise / noise_svd
+    x_0_hat = (x_in + h_t * uncond_score) / alpha_t            # x̂_0(x_t)
+    value = torch.sum(x_0_hat * self.g, dim=1, keepdim=True)   # g^T x̂_0  ← 线性观测 A(x̂_0)
+    gradient = torch.autograd.grad(value.sum(), x_in)[0]       # ∇_{x_t}(g^T x̂_0)，★穿过网络★
+
+beta_t = (alpha_t**2/2) / (alpha_t**2*self.sigma**2 + h_t*norm(gradient)**2)
+gradient_2 = 2 * (value - classes) * gradient                  # ∇(g^T x̂_0 - y)^2
+G = uncond_score - beta_t * gradient_2                          # 条件 score</code></pre>
+
+  <div class="callout paper">
+    <span class="lab">论文对应 · v1 与 v2 的唯一本质区别</span>
+    把 v2 的 <code>gradient = ∇_{x_t}(g^T x̂_0)</code> <b>近似成常数 \(g\)</b>（即假装 \(\hat x_0\) 对 \(x_t\) 的雅可比是单位阵），v2 就退化成 v1。所以：<br>
+    • <b>v1</b>：忽略 denoiser 雅可比 → 引导方向 = 原始梯度 \(g\) → 容易冲出流形（θ₂ 实验里 off-support ratio 飙升）。<br>
+    • <b>v2</b>：保留 denoiser 雅可比 \(\partial\hat x_0/\partial x_t\) → 引导方向被投影回数据流形 → 奖励高且 ratio 低。<br>
+    这个 denoiser 雅可比，就是论文反复强调的「流形信息」。
+  </div>
+
+  <h3>5.4 为什么说 v2 = DPS？</h3>
+  <p>DPS（Chung et al., ICLR 2023）解逆问题 \(y=\mathcal{A}(x_0)+n,\ n\sim\mathcal{N}(0,\sigma^2)\)，它对 guidance 项的近似正是：</p>
+  $$ \nabla_{x_t}\log p(y\mid x_t)\;\approx\;-\frac{1}{2\sigma^2}\nabla_{x_t}\big\|\,y-\mathcal{A}(\hat x_0(x_t))\,\big\|^2 $$
+  <p>对比 5.3 的 \(G_{\text{loss}}\)：当观测算子取<b>线性</b> \(\mathcal{A}(x)=g^\top x\) 时，两者<b>逐项相同</b>（论文的 \(\beta_t\) 把 \(1/2\sigma^2\) 这类系数吸收进去并按时间步自适应）。</p>
+  <div class="callout meta">
+    <span class="lab">这对你意味着什么</span>
+    <b>你不需要「另外实现一个 DPS」——v2 已经是一个 DPS 了，只不过观测算子被写死成线性的 \(g^\top x\)。</b>你要做的事是把 <code>value = sum(x_0_hat * g)</code> 这一行换成 <code>value = A(x_0_hat)</code>，其中 \(\mathcal{A}\) 是你 metamaterial 的（可微）性质预测网络。见第 7、8 节。
+  </div>
+
+  <h3>5.5 引导如何接回采样链</h3>
+  <p>算出条件 score \(G\) 后，转回「等效噪声」喂给第 4 节的 DDPM 后验，反向链其余部分原封不动：</p>
+  <span class="fil">diffusion.py · p_mean_variance 的 guided 重载 (L217)</span>
+<pre><code class="language-python">if self.cond_score_version == "v1":
+    cond_score = self.cond_score_v1(x, classes, uncond_score, t)
+    pred_noise = -1 * cond_score * noise_svd      # score → noise
+else:  # v2
+    pred_noise = self.cond_score_v2(x, t, classes)
+# 之后跟无条件采样完全一样：Tweedie → 后验均值 → p_sample</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="s6"><span class="toc-num">6</span>优化循环（Algorithm 1）</h2>
+  <div class="callout intu">
+    <span class="lab">直觉</span>
+    单次引导采样只是「朝目标 \(y\) 生成一批样本」。要做<b>优化</b>（不断把奖励顶上去），就把它套进一个外层循环：每轮用上一批样本的<b>当前梯度</b>重新设引导，目标值设成「比当前再高一点点」(\(\delta\)=interval)。逐轮逼近最优。
+  </div>
+
+  <span class="fil">main.py · optimize (L304-340) —— 每一轮</span>
+<pre><code class="language-python">for i in range(args.opt_rounds):
+    # 1. 在当前样本处查询奖励梯度 g_k = ∇f(z_k)（每个样本各一份）
+    bs_gradient, bs_value = BatchGrad(query_samples, func)
+    diffusion.update_grad(bs_gradient)                       # 存进 self.g
+
+    # 2. 设目标值 y_k = δ + g_k^T z_k （在当前点线性外推，期望奖励涨 δ）
+    guidance = interval + torch.sum(bs_gradient * query_samples, dim=1)
+
+    # 3. 用引导扩散生成下一批样本（v1 或 v2）
+    query_samples = diffusion.sample(num_samples=args.generate_bs, classes=guidance)
+
+    # 4. 评估：奖励 + off-support ratio（看有没有偏离流形）
+    reward = func(query_samples);  ratio = generator.off_support_ratio(query_samples)
+    opt_logger.log(reward=reward.mean(), ratio=np.mean(ratio))</code></pre>
+
+  <p><b>Algorithm 2</b> 在此基础上加 <code>--score_matching_finetune</code>：用每轮新生成的高奖励样本对 denoiser 做几步 score-matching 微调（<code>loss = diffusion(query_samples)</code>，L320），让先验逐渐「跟上」优化方向。初学先忽略它，跑通 Alg.1 即可。</p>
+
+  <!-- ============================================================ -->
+  <h2 id="s7"><span class="toc-num">7</span>在 simulation 上「跑通一个 DPS」</h2>
+
+  <p>你的第二步目标。这里给两条路，<b>建议先走 A 再走 B</b>。</p>
+
+  <h3>路 A：直接把 v2 当 DPS 跑通（零改代码，先建立信心）</h3>
+  <p>v2 本身就是线性 DPS。先按论文命令跑起来，确认你能复现「奖励上升 + ratio 不爆」：</p>
+<pre><code class="language-bash">cd simulations
+python main.py --optimize --x_type linear_latent --cond_score_version v2 \
+  --func_type quadratic \
+  --pretrain_ckpt checkpoints/pretrained/linear_latent_pretrain_epoch_20.pth \
+  --generate_bs 32 --opt_rounds 1000 --interval 0.2 --save_samples</code></pre>
+  <p>然后开 <code>tensorboard --logdir logs</code>，盯两条曲线：<code>stats/reward</code> 应上升、<code>stats/ratio</code> 应保持低。把 <code>--cond_score_version</code> 换成 <code>v1</code> 对比——你会看到 v1 的 ratio 明显更高（冲出流形）。<b>这一步是你理解「DPS 在干嘛」的最直观证据。</b></p>
+
+  <h3>路 B：写一个「教科书版 DPS」函数（为搬去 metamaterial 铺路）</h3>
+  <p>论文的 \(\beta_t\) 是自适应的、带很多项；标准 DPS 的写法更朴素，便于你之后改成非线性观测。核心就是把 5.3 的逻辑抽象成「任意可微观测算子 \(\mathcal{A}\) + 任意目标 \(y\)」。一个最小实现（可加进 <code>diffusion.py</code> 作为 <code>cond_score_dps</code>）：</p>
+
+  <span class="fil">建议新增 · diffusion.py · 教科书版 DPS（示意，A 为可微观测）</span>
+<pre><code class="language-python">def cond_score_dps(self, x, t, target, operator, zeta=1.0):
+    """
+    标准 DPS：guidance = - zeta/||y-A(x̂0)|| * ∇_{x_t} ||y - A(x̂0)||
+    operator: 可微函数 A(x0_hat) -> 观测（线性时就是 g^T x；metamaterial 时是你的性质网络）
+    target:   目标观测 y
+    zeta:     步长超参（替代论文里复杂的 β_t；DPS 原文用 1/||y-A(x̂0)||）
+    """
+    h_t = extract(self.sqrt_one_minus_alphas_cumprod, t, (x.shape[0],1))**2
+    alpha_t = extract(self.sqrt_alphas_cumprod, t, (x.shape[0],1))
+    with torch.enable_grad():
+        x_in = x.detach().requires_grad_(True)
+        pred_noise = self.model(x_in, t, classes=None)
+        uncond_score = -pred_noise / extract(self.sqrt_one_minus_alphas_cumprod, t, pred_noise.shape)
+        x0_hat = (x_in + h_t * uncond_score) / alpha_t
+        residual = target - operator(x0_hat)                 # y - A(x̂0)
+        loss = torch.linalg.norm(residual)                   # ||·||（注意：范数，不是平方）
+        grad = torch.autograd.grad(loss, x_in)[0]
+    step = zeta / (loss.detach() + 1e-8)                     # DPS 原文的自适应步长
+    G = uncond_score - step * grad
+    return -1 * G * extract(self.sqrt_one_minus_alphas_cumprod, t, pred_noise.shape)  # 转回 noise</code></pre>
+
+  <div class="callout gotcha">
+    <span class="lab">和 v2 的细微差别（别混淆）</span>
+    • v2 用的是 <b>损失的平方</b> \((y-g^\top\hat x_0)^2\) 并带论文专属的自适应 \(\beta_t\)；标准 DPS 用 <b>残差范数</b> \(\|y-\mathcal{A}(\hat x_0)\|\) 配步长 \(\zeta/\|\cdot\|\)。两者方向一致、缩放不同。<br>
+    • 先用路 A（v2）确认能跑；路 B 只是为了让观测算子<b>可插拔</b>，方便第 8 节换成你的网络。两种都属于 DPS 家族。
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="s8"><span class="toc-num">8</span>搬到 metamaterial 逆向设计</h2>
+
+  <p>你的终极目标：<b>设计一个 unit-cell 结构 \(x\)，使其物理性质（色散关系 / 带隙）命中目标 \(y^\star\)</b>。这天然是个逆问题 → DPS 正合适。下面是「符号映射 + 改动清单」。</p>
+
+  <h3>8.1 概念映射表</h3>
+  <table>
+    <tr><th>simulation 里的东西</th><th>metamaterial 里换成</th></tr>
+    <tr><td>数据流形（16 维子空间 / 单位球）</td><td>「所有合法 / 可制造的结构」组成的流形</td></tr>
+    <tr><td>预训练无条件扩散模型（Unet1D）</td><td>在你的结构数据集上预训练的扩散模型（结构是 2D 图像 → 用 <b>2D U-Net</b>，参考 <code>image_generation/</code> 的 SD 管线，而非 1D）</td></tr>
+    <tr><td>线性观测 \(\mathcal{A}(x)=g^\top x\)</td><td>你的<b>可微性质预测网络</b> \(\mathcal{A}(x)=\)（色散/带隙 surrogate，仓库里已有 dispersion 预测代码）</td></tr>
+    <tr><td>目标值 \(y\)（标量 reward 目标）</td><td>目标物理性质 \(y^\star\)（可以是向量：多个频段的带隙）</td></tr>
+    <tr><td>off-support ratio</td><td>「生成结构的可制造性 / 合法性」指标（你已有 Manufacturability 分析）</td></tr>
+  </table>
+
+  <h3>8.2 改动清单（基于路 B 的 <code>cond_score_dps</code>）</h3>
+  <ol>
+    <li><b>换网络维度</b>：Unet1D → 2D U-Net（diffusers 的 UNet2DModel，或直接复用 <code>image_generation/gradguided_sdpipeline.py</code> 的结构）。\(\hat x_0\) 变成 2D 结构图。</li>
+    <li><b>换观测算子</b>：把 <code>operator</code> 设成你的色散预测网络（<b>必须可微、且 requires_grad=False 冻结其权重</b>，只对输入 \(\hat x_0\) 求梯度）。这正是 <code>image_generation/main.py</code> 里 <code>RCGDMScorer</code> 扮演的角色——它就是个冻结的 ResNet 奖励模型，可微。</li>
+    <li><b>换目标</b>：<code>target = y\star</code>（你的目标带隙）。损失用 \(\|y^\star-\mathcal{A}(\hat x_0)\|^2\)。</li>
+    <li><b>预训练扩散模型</b>：先在你的结构数据集（datasetA?）上跑无条件预训练（第 2–4 节那套，2D 版）。这是<b>前提</b>，没有它 guidance 无从谈起。</li>
+    <li><b>调步长</b>：metamaterial 的 \(\mathcal{A}\) 是强非线性，guidance 步长（\(\zeta\) 或论文 \(\beta_t\)）要重新调；太大→结构崩坏跑出流形，太小→性质不达标。这跟 image 实验里调 <code>--guidance</code> 是一回事。</li>
+  </ol>
+
+  <div class="callout meta">
+    <span class="lab">直接参考 image_generation 而不是 simulations</span>
+    你的结构是 2D 图像、观测算子是 NN——这跟 <code>image_generation/gradguided_sdpipeline.py</code> <b>结构完全一致</b>（那里 \(\mathcal{A}=\) ResNet 奖励模型、\(x_0\) 经 VAE 解码成图像、对 latent 反传）。建议：把它当模板，<b>把 RCGDMScorer 换成你的色散预测网络、把 target 换成目标带隙</b>，就是你的 metamaterial DPS 雏形。<code>simulations</code> 用来吃透原理，<code>image_generation</code> 用来抄工程结构。
+  </div>
+
+  <details>
+    <summary>image_generation 里的 DPS 核心（点开看它和 v2 的对应）</summary>
+<pre><code class="language-python"># gradguided_sdpipeline.py (L199-210)
+clean_pred = (latents - sqrt_1minus_alpha_t * noise_pred) / sqrt_alpha_t   # Tweedie x̂_0（latent）
+clean_pred = self.vae.decode(clean_pred / scaling).sample                  # 解码成图像 Dec(x̂_0)
+out = torch.einsum('bijk,bijk->b', self.gradients, clean_pred) + self.biases  # 线性化奖励 A(x̂_0)
+l2_error = 0.5 * MSELoss()(out, target)                                    # (y - A(x̂_0))^2
+gradient_guidance = torch.autograd.grad(l2_error, latents)[0]              # ∇_{z_t} loss（穿过 VAE+UNet）
+noise_pred += sqrt_1minus_alpha_t * self.target_guidance * gradient_guidance  # 加进噪声
+# ↑ 把 self.gradients/biases 换成「你的可微性质网络」就不再是线性近似，而是真·非线性 DPS</code></pre>
+  </details>
+
+  <!-- ============================================================ -->
+  <h2 id="s9"><span class="toc-num">9</span>怎么跑 &amp; 调试建议</h2>
+  <ol>
+    <li><b>装环境</b>：<code>pip install -r requirements.txt</code>（建议 conda 新建 python=3.10 环境）。</li>
+    <li><b>下数据/权重</b>：从 <a href="https://huggingface.co/PDMR/GGDMOptim/tree/main">HuggingFace PDMR/GGDMOptim</a> 下 <code>data/</code> 和 <code>checkpoints/</code>，放进 <code>simulations/</code>（替换占位文件）。</li>
+    <li><b>先看无条件生成</b>：不加 <code>--optimize</code>，确认能采样、ratio≈0。</li>
+    <li><b>跑 v2（DPS）vs v1（naive）对比</b>：见第 7 节路 A。这是理解全篇的关键实验。</li>
+    <li><b>用 tensorboard 看曲线</b>：<code>reward</code>↑、<code>ratio</code> 低 = 成功；<code>ratio</code> 爆掉 = 引导太猛或方法选错。</li>
+  </ol>
+
+  <div class="callout intu">
+    <span class="lab">建立直觉的最小实验</span>
+    固定 seed，用 <code>--func_type quadratic</code>（θ₂，off/on 比=9），分别跑 v1 / v2 各 1000 轮，把两者的 <code>reward</code> 和 <code>ratio</code> 画在一起。你会亲眼看到论文 Figure 4 的现象：v1 奖励也能涨，但 ratio 越涨越高（样本逃离流形、其实是「作弊」）；v2 奖励涨得稳、ratio 始终低。<b>这一张图看懂了，整篇论文就懂了。</b>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="cheat">附 · 符号 ↔ 代码对照表</h2>
+  <table>
+    <tr><th>论文符号</th><th>含义</th><th>代码</th></tr>
+    <tr><td>\(\bar\alpha_t\)</td><td>累积保留系数</td><td><code>alphas_cumprod</code></td></tr>
+    <tr><td>\(\sqrt{\bar\alpha_t}\)</td><td>加噪缩放（代码叫 alpha_t）</td><td><code>sqrt_alphas_cumprod</code> / <code>alpha_t</code></td></tr>
+    <tr><td>\(1-\bar\alpha_t\)</td><td>噪声方差（代码叫 h_t）</td><td><code>sqrt_one_minus_alphas_cumprod**2</code> / <code>h_t</code></td></tr>
+    <tr><td>\(\varepsilon_\theta(x_t,t)\)</td><td>denoiser 预测的噪声</td><td><code>pred_noise = self.model(...)</code></td></tr>
+    <tr><td>\(s(x_t,t)\)</td><td>score \(=-\varepsilon_\theta/\sqrt{1-\bar\alpha_t}\)</td><td><code>uncond_score</code></td></tr>
+    <tr><td>\(\hat x_0\)</td><td>Tweedie 预估的干净样本</td><td><code>x_0_hat</code> / <code>x_start</code></td></tr>
+    <tr><td>\(g\)</td><td>奖励梯度 \(\nabla f\)</td><td><code>self.g</code></td></tr>
+    <tr><td>\(y\)</td><td>引导目标值</td><td><code>classes</code>（注意不是网络输入！）</td></tr>
+    <tr><td>\(\beta_t\)</td><td>引导强度（自适应）</td><td><code>beta_t</code></td></tr>
+    <tr><td>\(\delta\)</td><td>每轮期望奖励增量</td><td><code>--interval</code></td></tr>
+    <tr><td>\(\sigma\)</td><td>观测噪声水平（Assumption 2）</td><td><code>self.sigma=0.1</code></td></tr>
+    <tr><td>off-support ratio</td><td>偏离流形程度</td><td><code>off_support_ratio()</code></td></tr>
+  </table>
+
+  <hr>
+  <p class="footnote">本文档由对 <code>code/GGDMOptim/simulations/</code> 源码的逐行阅读整理而成，行号对应仓库当前版本。公式与论文 (arXiv:2404.14743) 的 Definition 1 / Lemma 1 / Proposition 3 对应。如需把某一节展开成可运行的 notebook，或把第 7 节路 B 的 DPS 真正接进代码跑一遍，告诉我即可。</p>
+</main>
+</div>
+</body>
+</html>

@@ -106,6 +106,58 @@ class GaussianDiffusion(nn.Module):
             img = self.p_sample(img, t, classes)
         return img
 
+    @torch.no_grad()
+    def ddim_sample(self, num_samples=None, classes=None, ddim_steps=None, eta=0.0,
+                    noise=None, progress=True):
+        '''
+        DDIM Sampler (unconditional; does NOT apply gradient guidance).
+
+        Kept separate from `sample` (DDPM) so both remain selectable.
+
+        Params:
+            num_samples / classes: number of samples (classes only used to infer N here, not fed to the
+                unconditional model; guidance is not applied in this DDIM path).
+            ddim_steps: number of (sub-sampled) timesteps. None -> use all `num_timesteps` steps.
+            eta: stochasticity. eta=0 -> fully deterministic (recommended for epistemic/UQ experiments,
+                 since the only source of variation is the model weights); eta=1 -> DDPM-like.
+            noise: optional fixed initial latent x_T of shape (N, image_size). Fix it (with eta=0) to
+                   isolate weight uncertainty across multiple weight draws.
+            progress: show tqdm bar.
+        '''
+        device = self.betas.device
+        if noise is not None:
+            N = noise.shape[0]
+        else:
+            assert (classes is not None or num_samples is not None)
+            N = classes.shape[0] if classes is not None else num_samples
+
+        # choose (ascending) timestep subset
+        if ddim_steps is None:
+            seq = list(range(self.num_timesteps))
+        else:
+            seq = torch.linspace(0, self.num_timesteps - 1, ddim_steps).round().long().tolist()
+            seq = sorted(set(int(s) for s in seq))
+
+        img = noise.to(device) if noise is not None else torch.randn((N, self.image_size), device=device)
+        idxs = list(reversed(range(len(seq))))
+        for i in tqdm(idxs, desc='ddim sampling', disable=not progress):
+            t = seq[i]
+            t_batch = torch.full((N,), t, device=device, dtype=torch.long)
+            pred_noise = self.model(img, t_batch, None)
+            abar_t = extract(self.alphas_cumprod, t_batch, img.shape)
+            x0 = (img - torch.sqrt(1. - abar_t) * pred_noise) / torch.sqrt(abar_t)
+            if i == 0:
+                img = x0                                   # final clean sample
+            else:
+                abar_prev = self.alphas_cumprod[seq[i - 1]]
+                sigma = eta * torch.sqrt(
+                    (1. - abar_prev) / (1. - abar_t) * (1. - abar_t / abar_prev))
+                noise_t = torch.randn_like(img) if eta > 0 else torch.zeros_like(img)
+                img = (torch.sqrt(abar_prev) * x0
+                       + torch.sqrt(torch.clamp(1. - abar_prev - sigma ** 2, min=0.)) * pred_noise
+                       + sigma * noise_t)
+        return img
+
     def p_losses(self, x_start, t, classes=None):
         noise = torch.randn_like(x_start)
         x = extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start + extract(

@@ -7,7 +7,7 @@
 # =============================================================================
 
 # ---- 资源申请：★ 三处需要你按自己的 Quest 账号/环境修改（标了 ★）----
-#SBATCH --account=pXXXXXX           # ★ 你的 Quest allocation (项目号, 形如 p12345)
+#SBATCH --account=p32889            # Quest allocation (项目号)
 #SBATCH --partition=gengpu          # Quest GPU 分区（gengpu 有 A100）
 #SBATCH --gres=gpu:a100:1           # 1 张 A100（若该分区无 a100，可去掉:a100 写 gpu:1）
 #SBATCH --nodes=1
@@ -21,18 +21,24 @@
 
 set -euo pipefail
 
-# ---- 激活环境：★ 按你在 Quest 上的实际方式修改 ----
-module purge
-module load python-anaconda3        # ★ 看 Quest 用哪个 (python-anaconda3 / mamba / ...)
-eval "$(conda shell.bash hook)"
-conda activate ET_cuda              # ★ 你在 Quest 上建好的 conda 环境名
+# ---- 环境：照搬同账号 acoustic 项目里已验证可在 gengpu A100 上跑通的配方 ----
+# dps_uq 装在 project space（home 配额满），不在 conda 的按名搜索路径上；用绝对路径
+# 调用解释器比 `conda activate` 在 SLURM 批处理里更稳。不要 `module purge`：之前那版
+# purge + conda activate 触发了 cuDNN error: CUDNN_STATUS_NOT_INITIALIZED。
+export PYTHONNOUSERSITE=1            # 忽略 ~/.local，避免任何包覆盖 env
+PY=/projects/p32889/.conda/envs/dps_uq/bin/python
 
-# ---- 运行（参数 = notebook cell-4 的论文严格配置）----
 # main.py 会自动 chdir 到自身所在目录，所以从哪提交都行；但建议就在 simulations/ 下提交。
 cd "$SLURM_SUBMIT_DIR"
 
-python main.py \
-    --x_type linear_latent --pretrain \
+# ---- 诊断（若再失败，这几行能告诉我们 GPU/torch 是否正常）----
+echo "host: $(hostname)"
+nvidia-smi || true
+"$PY" -c "import torch; print('torch', torch.__version__, '| cuda avail', torch.cuda.is_available())"
+
+# ---- 运行：只做 notebook cell-4 的训练（--pretrain_only 跳过 main.py 后续的无条件采样）----
+"$PY" main.py \
+    --x_type linear_latent --pretrain --pretrain_only \
     --N_0 65536 --pre_num_episodes 20 --pre_bs 32 --pre_lr 1e-4 --T 200 \
     --d_outer 64 --d_inner 16 --r_off 9 \
     --pretrain_ckpt_folder checkpoints/pretrained

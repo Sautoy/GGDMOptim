@@ -50,6 +50,11 @@ def parse_args():
         help = "whether to pretrain the score model"
     )
     parser.add_argument(
+        "--pretrain_only",
+        action = "store_true",
+        help = "stop right after pretraining + saving the checkpoint (skip the unconditional sampling / optimization that main() otherwise always runs). = notebook cell-4 only."
+    )
+    parser.add_argument(
         "--pretrain_ckpt_folder",  
         type=str,   
         default="pretrained",   
@@ -415,7 +420,12 @@ def main(args, seed=2345):
         diffusion.load_state_dict(pretrain_info["model_state_dict"])
         
         exp_info = f"{args.x_type}/pretrain_{total_epoch}"
-        
+
+    if args.pretrain_only:
+        print(f"[--pretrain_only] checkpoint saved; skipping unconditional sampling / optimization.")
+        print(f"The total running time is: {time.time()-all_start_time} ")
+        return
+
     model.eval()
     if args.x_type == "linear_latent": 
         func_type = args.func_type
